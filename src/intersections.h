@@ -142,3 +142,54 @@ __host__ __device__ float sphereIntersectionTest(Geom sphere, Ray r,
 
     return glm::length(r.origin - intersectionPoint);
 }
+
+
+namespace SceneIntersection
+{
+	__device__ void getRaySceneIntersection(
+		float &t_ret,
+		int &hit_geom_index_ret,
+		glm::vec3 &normal_ret,
+		const Ray &ray,
+		const Geom * geoms,
+		int geoms_size)
+	{
+		float t;
+		float t_min = FLT_MAX;
+		bool outside = true;
+		int hit_geom_index = -1;
+
+		glm::vec3 tmp_intersect;
+		glm::vec3 tmp_normal;
+		glm::vec3 normal;
+
+		// naive parse through global geoms
+		for (int i = 0; i < geoms_size; i++)
+		{
+			const Geom &geom = geoms[i];
+
+			if (geom.type == CUBE)
+			{
+				t = boxIntersectionTest(geom, ray, tmp_intersect, tmp_normal, outside);
+			}
+			else if (geom.type == SPHERE)
+			{
+				t = sphereIntersectionTest(geom, ray, tmp_intersect, tmp_normal, outside);
+			}
+			// TODO: add more intersection tests here... triangle? metaball? CSG?
+
+			// Compute the minimum t from the intersection tests to determine what
+			// scene geometry object was hit first.
+			if (t > 0.0f && t_min > t)
+			{
+				t_min = t;
+				hit_geom_index = i;
+				normal = tmp_normal;
+			}
+		}
+
+		t_ret = t_min;
+		hit_geom_index_ret = hit_geom_index;
+		normal_ret = normal;
+	}
+}

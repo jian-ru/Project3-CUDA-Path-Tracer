@@ -22,6 +22,7 @@ glm::vec3 ogLookAt; // for recentering the camera
 Scene *scene;
 RenderState *renderState;
 int iteration;
+float iterationTimeMs;
 
 int width;
 int height;
@@ -83,8 +84,9 @@ void saveImage() {
     for (int x = 0; x < width; x++) {
         for (int y = 0; y < height; y++) {
             int index = x + (y * width);
-            glm::vec3 pix = renderState->image[index];
-            img.setPixel(width - 1 - x, y, glm::vec3(pix) / samples);
+            glm::vec4 pix4 = renderState->image[index];
+			glm::vec3 pix(pix4.x / pix4.w, pix4.y / pix4.w, pix4.z / pix4.w);
+            img.setPixel(width - 1 - x, y, pix);
         }
     }
 
@@ -129,15 +131,22 @@ void runCuda() {
 
     if (iteration < renderState->iterations) {
         uchar4 *pbo_dptr = NULL;
-        iteration++;
         cudaGLMapBufferObject((void**)&pbo_dptr, pbo);
 
         // execute the kernel
         int frame = 0;
+		cudaEvent_t start, stop;
+		cudaEventCreate(&start);
+		cudaEventCreate(&stop);
+		cudaEventRecord(start);
         pathtrace(pbo_dptr, frame, iteration);
+		cudaEventRecord(stop);
+		cudaEventSynchronize(stop);
+		cudaEventElapsedTime(&iterationTimeMs, start, stop);
 
         // unmap buffer object
         cudaGLUnmapBufferObject(pbo);
+		++iteration;
     } else {
         saveImage();
         pathtraceFree();

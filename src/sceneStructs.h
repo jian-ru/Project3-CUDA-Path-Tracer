@@ -18,6 +18,7 @@ struct Ray {
 };
 
 struct Geom {
+	int idx;
     enum GeomType type;
     int materialid;
     glm::vec3 translation;
@@ -28,9 +29,19 @@ struct Geom {
     glm::mat4 invTranspose;
 };
 
-struct Material {
+enum MaterialType
+{
+	M_Lambert,
+	M_Mirror,
+	M_Glass,
+	M_MaterialCount
+};
+
+struct Material
+{
     glm::vec3 color;
-    struct {
+    struct
+	{
         float exponent;
         glm::vec3 color;
     } specular;
@@ -38,6 +49,7 @@ struct Material {
     float hasRefractive;
     float indexOfRefraction;
     float emittance;
+	MaterialType type;
 };
 
 struct Camera {
@@ -49,19 +61,22 @@ struct Camera {
     glm::vec3 right;
     glm::vec2 fov;
     glm::vec2 pixelLength;
+	float lensRadius;
+	float focalDistance;
 };
 
 struct RenderState {
     Camera camera;
     unsigned int iterations;
     int traceDepth;
-    std::vector<glm::vec3> image;
+    std::vector<glm::vec4> image;
     std::string imageName;
 };
 
 struct PathSegment {
 	Ray ray;
 	glm::vec3 color;
+	glm::vec3 misWeight;
 	int pixelIndex;
 	int remainingBounces;
 };

@@ -1,4 +1,6 @@
 #include <iostream>
+#include <unordered_map>
+#include <algorithm>
 #include "scene.h"
 #include <cstring>
 #include <glm/gtc/matrix_inverse.hpp>
@@ -83,6 +85,7 @@ int Scene::loadGeom(string objectid) {
                 newGeom.translation, newGeom.rotation, newGeom.scale);
         newGeom.inverseTransform = glm::inverse(newGeom.transform);
         newGeom.invTranspose = glm::inverseTranspose(newGeom.transform);
+		newGeom.idx = geoms.size();
 
         geoms.push_back(newGeom);
         return 1;
@@ -96,7 +99,7 @@ int Scene::loadCamera() {
     float fovy;
 
     //load static properties
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 7; i++) {
         string line;
         utilityCore::safeGetline(fp_in, line);
         vector<string> tokens = utilityCore::tokenizeString(line);
@@ -111,7 +114,13 @@ int Scene::loadCamera() {
             state.traceDepth = atoi(tokens[1].c_str());
         } else if (strcmp(tokens[0].c_str(), "FILE") == 0) {
             state.imageName = tokens[1];
-        }
+		}
+		else if (strcmp(tokens[0].c_str(), "LENSRADIUS") == 0) {
+			camera.lensRadius = atof(tokens[1].c_str());
+		}
+		else if (strcmp(tokens[0].c_str(), "FOCALD") == 0) {
+			camera.focalDistance = atof(tokens[1].c_str());
+		}
     }
 
     string line;
@@ -144,7 +153,7 @@ int Scene::loadCamera() {
     //set up render camera stuff
     int arraylen = camera.resolution.x * camera.resolution.y;
     state.image.resize(arraylen);
-    std::fill(state.image.begin(), state.image.end(), glm::vec3());
+    std::fill(state.image.begin(), state.image.end(), glm::vec4());
 
     cout << "Loaded camera!" << endl;
     return 1;
@@ -158,13 +167,25 @@ int Scene::loadMaterial(string materialid) {
     } else {
         cout << "Loading Material " << id << "..." << endl;
         Material newMaterial;
+		std::unordered_map<std::string, MaterialType> matTypeLut =
+		{
+			{ "lambert", M_Lambert },
+			{ "mirror", M_Mirror },
+			{ "glass", M_Glass },
+		};
 
         //load static properties
-        for (int i = 0; i < 7; i++) {
+		const int kNumAttributes = 8;
+        for (int i = 0; i < kNumAttributes; i++) {
             string line;
             utilityCore::safeGetline(fp_in, line);
             vector<string> tokens = utilityCore::tokenizeString(line);
-            if (strcmp(tokens[0].c_str(), "RGB") == 0) {
+			if (strcmp(tokens[0].c_str(), "TYPE") == 0)
+			{
+				std::transform(tokens[1].begin(), tokens[1].end(), tokens[1].begin(), ::tolower);
+				newMaterial.type = matTypeLut[tokens[1]];
+			}
+            else if (strcmp(tokens[0].c_str(), "RGB") == 0) {
                 glm::vec3 color( atof(tokens[1].c_str()), atof(tokens[2].c_str()), atof(tokens[3].c_str()) );
                 newMaterial.color = color;
             } else if (strcmp(tokens[0].c_str(), "SPECEX") == 0) {
