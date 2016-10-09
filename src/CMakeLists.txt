@@ -15,9 +15,11 @@ set(SOURCE_FILES
     "preview.cpp"
     "utilities.cpp"
     "utilities.h"
+    "tinyobj/tiny_obj_loader"
+    "tinyobj/tiny_obj_loader.cc"
     )
 
 cuda_add_library(src
     ${SOURCE_FILES}
-    OPTIONS -arch=sm_20
+    OPTIONS -arch=sm_30
     )

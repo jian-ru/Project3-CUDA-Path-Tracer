@@ -11,13 +11,14 @@
 #include <thrust/device_vector.h>
 
 #include "sceneStructs.h"
-#include "scene.h"
 #include "glm/glm.hpp"
 #include "glm/gtx/norm.hpp"
 #include "utilities.h"
+#define IMPLEMENT_DEVICE_FUNTIONS
 #include "pathtrace.h"
 #include "intersections.h"
 #include "interactions.h"
+
 
 #define ERRORCHECK 1
 
@@ -96,6 +97,9 @@ unsigned *dev_pathIndices = nullptr; // dev_pathIndices[i] contains the path ind
 
 const Geom **dev_lights = nullptr;
 __constant__ int dev_numLights;
+
+static Triangle *dev_triangles = nullptr;
+static BVH::GpuBVH dev_bvh;
 
 
 namespace MyUtilities
@@ -181,6 +185,11 @@ void pathtraceInit(Scene *scene) {
 	cudaMemset(dev_pathTypes, 0, pixelcount * sizeof(unsigned));
 
 	cudaMalloc(&dev_pathIndices, pixelcount * sizeof(unsigned));
+
+	cudaMalloc(&dev_triangles, scene->triangles.size() * sizeof(Triangle));
+	cudaMemcpy(dev_triangles, scene->triangles.data(), scene->triangles.size() * sizeof(Triangle), cudaMemcpyHostToDevice);
+
+	dev_bvh = scene->bvh->getGpuBuffers();
 }
 
 void pathtraceFree() {
@@ -189,8 +198,13 @@ void pathtraceFree() {
   	cudaFree(dev_geoms);
   	cudaFree(dev_materials);
   	cudaFree(dev_intersections);
-	cudaFree(dev_lights);
     // TODO: clean up any extra device memory you created
+	cudaFree(dev_lights);
+	cudaFree(dev_pathTypes);
+	cudaFree(dev_pathIndices);
+	cudaFree(dev_triangles);
+	cudaFree(dev_bvh.d_nodes);
+	cudaFree(dev_bvh.d_primimitives);
 
     checkCUDAError("pathtraceFree");
 }
@@ -269,7 +283,10 @@ __global__ void computeIntersections(
 	Geom * geoms, 
 	int geoms_size, 
 	ShadeableIntersection *intersections,
-	const Material *materials)
+	const Material *materials,
+	const Triangle *triangles,
+	int numTriangles,
+	BVH::GpuBVH bvh)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -287,7 +304,14 @@ __global__ void computeIntersections(
 		glm::vec3 normal;
 		int hit_geom_index = -1;
 
-		SceneIntersection::getRaySceneIntersection(t, hit_geom_index, normal, pathSegment.ray, geoms, geoms_size);
+		if (geoms_size + numTriangles < MIN_OBJECTS_REQUIRED_FOR_BVH) // Brute force
+		{
+			SceneIntersection::getRaySceneIntersection(t, hit_geom_index, normal, pathSegment.ray, geoms, geoms_size, triangles, numTriangles);
+		}
+		else // BVH
+		{
+			BVH::getRaySceneIntersection(t, hit_geom_index, normal, pathSegment.ray, bvh, geoms, triangles);
+		}
 
 		if (hit_geom_index == -1)
 		{
@@ -341,7 +365,10 @@ __global__ void shadeMaterials(
 	Material * materials,
 	const Geom **dev_lights,
 	const Geom *geoms,
-	int numGeoms
+	int numGeoms,
+	const Triangle *triangles,
+	int numTriangles,
+	BVH::GpuBVH bvh
 	)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -443,7 +470,7 @@ __global__ void shadeMaterials(
 				float lbPdf, bbPdf;
 				glm::vec3 lightDir;
 
-				LightSourceSampling::sampleLight_Sphere(lightDir, isBlocked, llPdf, lightSrc, isecPt, geoms, numGeoms, rng, u01);
+				LightSourceSampling::sampleLight_Sphere(lightDir, isBlocked, llPdf, lightSrc, isecPt, geoms, numGeoms, triangles, numTriangles, bvh, rng, u01);
 				glm::vec3 brdfDir = calculateRandomDirectionInHemisphere(bbPdf, intersection.surfaceNormal, rng, u01);
 				blPdf = LightSourceSampling::sphereLightPdf(lightSrc, isecPt, brdfDir);
 				lbPdf = cosWeightedHemispherePdf(intersection.surfaceNormal, lightDir);
@@ -619,7 +646,7 @@ void pathtrace(uchar4 *pbo, int frame, int iter) {
 
 	if (iter == 0)
 	{
-		generateRayFromCamera << <blocksPerGrid2d, blockSize2d >> >(cam, iter, 0, traceDepth, dev_paths);
+		generateRayFromCamera<<<blocksPerGrid2d, blockSize2d>>>(cam, iter, 0, traceDepth, dev_paths);
 		cudaMemset(dev_pathTypes, 0, pixelcount * sizeof(unsigned));
 		kernInitPathIndices << <NUM_BLOCKS(pixelcount, 256), 256 >> >(pixelcount, dev_pathIndices);
 		checkCUDAError("generate camera ray");
@@ -662,7 +689,10 @@ void pathtrace(uchar4 *pbo, int frame, int iter) {
 			dev_geoms, 
 			hst_scene->geoms.size(), 
 			dev_intersections,
-			dev_materials
+			dev_materials,
+			dev_triangles,
+			hst_scene->triangles.size(),
+			dev_bvh
 			);
 		checkCUDAError("trace one bounce");
 		//cudaDeviceSynchronize();
@@ -691,7 +721,10 @@ void pathtrace(uchar4 *pbo, int frame, int iter) {
 			dev_materials,
 			dev_lights,
 			dev_geoms,
-			hst_scene->geoms.size()
+			hst_scene->geoms.size(),
+			dev_triangles,
+			hst_scene->triangles.size(),
+			dev_bvh
 			);
 		checkCUDAError("shadeMaterials");
 

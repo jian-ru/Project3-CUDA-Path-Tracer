@@ -211,6 +211,9 @@ namespace LightSourceSampling
 		const glm::vec3 &isecPt,
 		const Geom *geoms,
 		int numGeoms,
+		const Triangle *triangles,
+		int numTriangles,
+		BVH::GpuBVH bvh,
 		thrust::default_random_engine &rng,
 		thrust::uniform_real_distribution<float> &u01)
 	{
@@ -231,7 +234,15 @@ namespace LightSourceSampling
 		float t;
 		int hitGeomIdx;
 		glm::vec3 normal;
-		SceneIntersection::getRaySceneIntersection(t, hitGeomIdx, normal, r, geoms, numGeoms);
+
+		if (numGeoms + numTriangles < MIN_OBJECTS_REQUIRED_FOR_BVH)
+		{
+			SceneIntersection::getRaySceneIntersection(t, hitGeomIdx, normal, r, geoms, numGeoms, triangles, numTriangles);
+		}
+		else
+		{
+			BVH::getRaySceneIntersection(t, hitGeomIdx, normal, r, bvh, geoms, triangles);
+		}
 
 		pdf = uniformConePdf(cos_theta_max);
 		isBlocked = true;

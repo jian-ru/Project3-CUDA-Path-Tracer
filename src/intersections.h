@@ -125,10 +125,10 @@ __host__ __device__ float sphereIntersectionTest(Geom sphere, Ray r,
     if (t1 < 0 && t2 < 0) {
         return -1;
     } else if (t1 > 0 && t2 > 0) {
-        t = min(t1, t2);
+        t = glm::min(t1, t2);
         outside = true;
     } else {
-        t = max(t1, t2);
+        t = glm::max(t1, t2);
         outside = false;
     }
 
@@ -144,6 +144,78 @@ __host__ __device__ float sphereIntersectionTest(Geom sphere, Ray r,
 }
 
 
+__host__ __device__ float triangleIntersectionTest(const Geom &mesh, const Triangle &tri,
+	const Ray &r, glm::vec3 &intersectionPoint, glm::vec3 &normal)
+{
+	// in BVH, triangle is responsible of transforming ray into local space
+	glm::vec3 ro = glm::vec3(mesh.inverseTransform * glm::vec4(r.origin, 1.f));
+	glm::vec3 rd = glm::normalize(glm::vec3(mesh.inverseTransform * glm::vec4(r.direction, 0.f)));
+
+//#define NAIVE_TRI_TEST
+#ifdef NAIVE_TRI_TEST
+	//1. Ray-plane intersection
+	glm::vec3 plane_normal = glm::normalize(glm::cross(tri.positions[1] - tri.positions[0], tri.positions[2] - tri.positions[0]));
+	float t = glm::dot(plane_normal, (tri.positions[0] - ro)) / glm::dot(plane_normal, rd);
+
+	if (t <= 0.f)
+	{
+		// intersection is behind ray origin
+		return t;
+	}
+
+	glm::vec3 P = t * rd + ro;   // local p
+	//2. Barycentric test
+	float S = 0.5f * glm::length(glm::cross(tri.positions[0] - tri.positions[1], tri.positions[0] - tri.positions[2]));
+	float s1 = 0.5f * glm::length(glm::cross(P - tri.positions[1], P - tri.positions[2])) / S;
+	float s2 = 0.5f * glm::length(glm::cross(P - tri.positions[2], P - tri.positions[0])) / S;
+	float s3 = 0.5f * glm::length(glm::cross(P - tri.positions[0], P - tri.positions[1])) / S;
+
+	t = FLT_MAX;
+	if (fabs(s1 + s2 + s3 - 1.f) < 1e-4f)
+	{
+		intersectionPoint = glm::vec3(mesh.transform * glm::vec4(P, 1.f));
+		normal = glm::normalize(glm::vec3(mesh.invTranspose *
+			glm::vec4(s1 * tri.normals[0] + s2 * tri.normals[1] + s3 * tri.normals[2], 0.f)));
+		t = glm::distance(intersectionPoint, r.origin);
+	}
+
+	return t;
+#else // Moller-Trumbore ray-triangle intersection
+	glm::vec3 e1, e2;
+	glm::vec3 P, Q, T;
+	float det, inv_det, u, v;
+	float t;
+
+	e1 = tri.positions[1] - tri.positions[0];
+	e2 = tri.positions[2] - tri.positions[0];
+
+	P = glm::cross(rd, e2);
+	det = glm::dot(e1, P);
+	if (det > -1e-5f && det < 1e-5f) return -1.f;
+	inv_det = 1.f / det;
+
+	T = ro - tri.positions[0];
+	u = glm::dot(T, P) * inv_det;
+	if (u < 0.f || u > 1.f) return -1.f;
+
+	Q = glm::cross(T, e1);
+	v = glm::dot(rd, Q) * inv_det;
+	if (v < 0.f || u + v > 1.f) return -1.f;
+
+	t = glm::dot(e2, Q) * inv_det;
+
+	if (t > 1e-5f)
+	{
+		intersectionPoint = glm::vec3(mesh.transform * glm::vec4(ro + t * rd, 1.f));
+		normal = glm::normalize((1.f - u - v) * tri.normals[0] +
+			u * tri.normals[1] + v * tri.normals[2]);
+		return glm::distance(intersectionPoint, r.origin); // world t
+	}
+
+	return -1.f;
+#endif
+}
+
 namespace SceneIntersection
 {
 	__device__ void getRaySceneIntersection(
@@ -152,7 +224,9 @@ namespace SceneIntersection
 		glm::vec3 &normal_ret,
 		const Ray &ray,
 		const Geom * geoms,
-		int geoms_size)
+		int geoms_size,
+		const Triangle *triangles,
+		int numTriangles)
 	{
 		float t;
 		float t_min = FLT_MAX;
@@ -184,6 +258,21 @@ namespace SceneIntersection
 			{
 				t_min = t;
 				hit_geom_index = i;
+				normal = tmp_normal;
+			}
+		}
+
+		for (int i = 0; i < numTriangles; ++i)
+		{
+			const Triangle &tri = triangles[i];
+			const Geom &geom = geoms[tri.meshIdx];
+
+			t = triangleIntersectionTest(geom, tri, ray, tmp_intersect, tmp_normal);
+
+			if (t > 0.0f && t_min > t)
+			{
+				t_min = t;
+				hit_geom_index = tri.meshIdx;
 				normal = tmp_normal;
 			}
 		}

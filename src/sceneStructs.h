@@ -1,26 +1,45 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 #include <cuda_runtime.h>
 #include "glm/glm.hpp"
 
 #define BACKGROUND_COLOR (glm::vec3(0.0f))
+#define MAX_BVH_DEPTH 32
+#define BVH_LEAF_SIZE 1
+#define MIN_OBJECTS_REQUIRED_FOR_BVH 32
 
-enum GeomType {
+enum GeomType
+{
     SPHERE,
     CUBE,
+	MESH,
+	GeomTypeCount
 };
 
-struct Ray {
+struct Ray
+{
     glm::vec3 origin;
     glm::vec3 direction;
 };
 
-struct Geom {
+struct Triangle
+{
+	glm::vec3 positions[3];
+	glm::vec3 normals[3];
+	int meshIdx; // mesh this triangle belongs to
+	int idx;
+};
+
+struct Geom
+{
 	int idx;
     enum GeomType type;
     int materialid;
+	int triListOffset;
+	int numTriangles;
     glm::vec3 translation;
     glm::vec3 rotation;
     glm::vec3 scale;
@@ -52,7 +71,8 @@ struct Material
 	MaterialType type;
 };
 
-struct Camera {
+struct Camera
+{
     glm::ivec2 resolution;
     glm::vec3 position;
     glm::vec3 lookAt;
@@ -65,7 +85,8 @@ struct Camera {
 	float focalDistance;
 };
 
-struct RenderState {
+struct RenderState
+{
     Camera camera;
     unsigned int iterations;
     int traceDepth;
@@ -73,7 +94,8 @@ struct RenderState {
     std::string imageName;
 };
 
-struct PathSegment {
+struct PathSegment
+{
 	Ray ray;
 	glm::vec3 color;
 	glm::vec3 misWeight;
@@ -84,7 +106,8 @@ struct PathSegment {
 // Use with a corresponding PathSegment to do:
 // 1) color contribution computation
 // 2) BSDF evaluation: generate a new ray
-struct ShadeableIntersection {
+struct ShadeableIntersection
+{
   float t;
   glm::vec3 surfaceNormal;
   int materialId;
