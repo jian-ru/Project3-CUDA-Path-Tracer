@@ -19,7 +19,8 @@ CUDA Path Tracer
 
 #### Results
 
-![]()
+<img src="img/final_1.png" width="400" height="400">
+<img src="img/final2.png" width="400" height="400">
 
 #### Analysis
 * Methodology
@@ -30,7 +31,7 @@ CUDA Path Tracer
 * A problem with random number generation
   * Monte Carlo method estimate integrals through random processes and hence relies on well distributed sampling pattern. All the sampling (cosine-weighted hemisphere sampling, cone sampling, concentric disk sampling, etc.) is based on a cannonical uniform distribution (i.e. between 0 and 1). If the assumption of uniform distribution doesn't hold, the results won't be correct.
   * The following image shows artifacts casued by incorrect random number generation. I forgot to update the depth value passed to the hashing function at the beginning. In this case, the skewed, correlated sampling pattern gives preference to certain directions on the hemisphere but this is not reflected in the pdf caculation. And the result is weird final color which is not easy to debug because there is no direct relation between the phenomenon and cause.
-  * ![]()
+  * <img src="img/rng_error_1.png" width="400" height="400"> <img src="img/rng_error_3.png" width="400" height="400">
 * MIS - cost and benefit
   * The following two images were rendered after 200 iterations using MIS and IS, respectively. It is obvious that MIS greately improves rate of convergence.
   * MIS is not free. The cost comes in as extra light source sampling and shadow ray intersection test for each path segement. The good thing is that this cost scales with image resolution (i.e. number of pathes) instead of scene complexity (unless there are materials that don't require light source sampling such as mirror or glass). In the standard scene, MIS cost about 100 ms on my machine which is about one fifth more expensive than IS. But obviously, the quality improvement is mcuh higher than the price. There is no way for IS to get the same quality if it is run the amount of time as MIS does.
@@ -52,5 +53,5 @@ CUDA Path Tracer
   * ![]()
 * Open scenes vs. closed scenes
   * Test was performed on an open and a closed cornell box.
-  * As expected, the execution time is longer in the closed scene because fewer rays terminate due to entering void and hence the shading kernel usually has more work to do.
-  * ![]()
+  * As expected, the execution time is longer in the closed scene because fewer rays terminate due to entering void and hence the shading kernel usually has more work to do. The closed scene is also brighber because no rays can escape.
+  * <img src="img/open_scene.png" width="400" height="400"> <img src="img/closed_scene.png" width="400" height="400">
