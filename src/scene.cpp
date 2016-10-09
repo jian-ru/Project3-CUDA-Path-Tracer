@@ -269,6 +269,8 @@ int Scene::loadMaterial(string materialid) {
 			{ "lambert", M_Lambert },
 			{ "mirror", M_Mirror },
 			{ "glass", M_Glass },
+			{ "ashikhminshirley", M_AshikhminShirley },
+			{ "torrancesparrow", M_TorranceSparrow },
 		};
 
         //load static properties

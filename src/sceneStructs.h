@@ -53,6 +53,8 @@ enum MaterialType
 	M_Lambert,
 	M_Mirror,
 	M_Glass,
+	M_AshikhminShirley,
+	M_TorranceSparrow,
 	M_MaterialCount
 };
 
