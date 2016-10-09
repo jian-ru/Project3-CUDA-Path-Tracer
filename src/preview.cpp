@@ -10,6 +10,9 @@ GLuint displayImage;
 
 GLFWwindow *window;
 
+extern RenderState *renderState;
+extern double numPathsFinished;
+
 std::string currentTimeString() {
     time_t now;
     time(&now);
@@ -167,13 +170,24 @@ bool init() {
     return true;
 }
 
+double computePathsPerIteration()
+{
+	numPathsFinished = 0.0;
+	for (const auto &pixel : renderState->image)
+	{
+		numPathsFinished += pixel.w;
+	}
+	return numPathsFinished / static_cast<double>(iteration);
+}
+
 void mainLoop() {
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
 		runCuda();
 
 		string title = "CIS565 Path Tracer | " + utilityCore::convertIntToString(iteration) + " Iterations ["
-			+ utilityCore::convertIntToString(iterationTimeMs) + " ms]";
+			+ utilityCore::convertIntToString(iterationTimeMs) + " ms] [" +
+			utilityCore::convertDoubleToString(computePathsPerIteration()) + "ppi]";
         glfwSetWindowTitle(window, title.c_str());
 
         glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);

@@ -23,6 +23,7 @@ Scene *scene;
 RenderState *renderState;
 int iteration;
 float iterationTimeMs;
+double numPathsFinished;
 
 int width;
 int height;
