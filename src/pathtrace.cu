@@ -506,14 +506,14 @@ __global__ void shadeMaterials(
 }
 
 // Add the current iteration's output to the overall image
-__global__ void finalGather(int nPaths, glm::vec3 * image, PathSegment * iterationPaths)
+__global__ void finalGather(int nPaths, glm::vec4 * image, PathSegment * iterationPaths)
 {
 	int index = (blockIdx.x * blockDim.x) + threadIdx.x;
 
 	if (index < nPaths)
 	{
 		PathSegment iterationPath = iterationPaths[index];
-		image[iterationPath.pixelIndex] += iterationPath.color;
+		image[iterationPath.pixelIndex] += glm::vec4(iterationPath.color, 1.f);
 	}
 }
 
@@ -644,13 +644,13 @@ void pathtrace(uchar4 *pbo, int frame, int iter) {
 
 	// TODO: perform one iteration of path tracing
 
-	if (iter == 0)
-	{
+	//if (iter == 0)
+	//{
 		generateRayFromCamera<<<blocksPerGrid2d, blockSize2d>>>(cam, iter, 0, traceDepth, dev_paths);
 		cudaMemset(dev_pathTypes, 0, pixelcount * sizeof(unsigned));
 		kernInitPathIndices << <NUM_BLOCKS(pixelcount, 256), 256 >> >(pixelcount, dev_pathIndices);
 		checkCUDAError("generate camera ray");
-	}
+	//}
 
 	int depth = 0;
 	PathSegment* dev_path_end = dev_paths + pixelcount;
@@ -659,26 +659,26 @@ void pathtrace(uchar4 *pbo, int frame, int iter) {
 	// --- PathSegment Tracing Stage ---
 	// Shoot ray into scene, bounce between objects, push shading chunks
 
-	//bool iterationComplete = false;
-	//while (!iterationComplete)
-	while (depth < traceDepth)
+	bool iterationComplete = false;
+	while (!iterationComplete)
+	//while (depth < traceDepth)
 	{
 		dim3 numblocksPathSegmentTracing = (num_paths + blockSize1d - 1) / blockSize1d;
 
-		kernRegenPaths<<<numblocksPathSegmentTracing, blockSize1d>>>(
-			dev_image,
-			dev_paths,
-			dev_pathTypes,
-			dev_pathIndices,
-			num_paths,
-			cam,
-			iter,
-			depth,
-			traceDepth);
+		//kernRegenPaths<<<numblocksPathSegmentTracing, blockSize1d>>>(
+		//	dev_image,
+		//	dev_paths,
+		//	dev_pathTypes,
+		//	dev_pathIndices,
+		//	num_paths,
+		//	cam,
+		//	iter,
+		//	depth,
+		//	traceDepth);
 
 		// clean shading chunks
 		cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
-
+		
 		// tracing
 		computeIntersections<<<numblocksPathSegmentTracing, blockSize1d>>> (
 			depth, 
@@ -697,8 +697,8 @@ void pathtrace(uchar4 *pbo, int frame, int iter) {
 		checkCUDAError("trace one bounce");
 		//cudaDeviceSynchronize();
 
-		//groupPathsByType(num_paths, true);
-		groupPathsByType(num_paths);
+		groupPathsByType(num_paths, true);
+		//groupPathsByType(num_paths);
 
 		//printf("host: %d, %d", sizeof(PathSegment), __alignof(PathSegment));
 		// TODO:
@@ -709,7 +709,6 @@ void pathtrace(uchar4 *pbo, int frame, int iter) {
 		// materials you have in the scenefile.
 		// TODO: compare between directly shading the path segments and shading
 		// path segments that have been reshuffled to be contiguous in memory.
-
 		shadeMaterials<<<numblocksPathSegmentTracing, blockSize1d>>> (
 			depth,
 			iter,
@@ -728,16 +727,18 @@ void pathtrace(uchar4 *pbo, int frame, int iter) {
 			);
 		checkCUDAError("shadeMaterials");
 
+		//groupPathsByType(num_paths, true);
+		//groupPathsByType(num_paths);
 		++depth;
-		//if (h_pathCountsPerType[Terminated] == num_paths)
-		//{
-		//	iterationComplete = true;
-		//}
+		if (h_pathCountsPerType[Terminated] == num_paths)
+		{
+			iterationComplete = true;
+		}
 	}
 
 	// Assemble this iteration and apply it to the image
 	dim3 numBlocksPixels = (pixelcount + blockSize1d - 1) / blockSize1d;
-	//finalGather<<<numBlocksPixels, blockSize1d>>>(num_paths, dev_image, dev_paths);
+	finalGather<<<numBlocksPixels, blockSize1d>>>(num_paths, dev_image, dev_paths);
 
 	///////////////////////////////////////////////////////////////////////////
 

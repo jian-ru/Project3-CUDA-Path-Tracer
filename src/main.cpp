@@ -23,6 +23,7 @@ Scene *scene;
 RenderState *renderState;
 int iteration;
 float iterationTimeMs;
+double totalElapsedTimeMs = 0.0;
 double numPathsFinished;
 
 int width;
@@ -104,6 +105,8 @@ void saveImage() {
 void runCuda() {
     if (camchanged) {
         iteration = 0;
+		numPathsFinished = 0.0;
+		totalElapsedTimeMs = 0.0;
         Camera &cam = renderState->camera;
         cameraPosition.x = zoom * sin(phi) * sin(theta);
         cameraPosition.y = zoom * cos(theta);
@@ -144,6 +147,7 @@ void runCuda() {
 		cudaEventRecord(stop);
 		cudaEventSynchronize(stop);
 		cudaEventElapsedTime(&iterationTimeMs, start, stop);
+		totalElapsedTimeMs += iterationTimeMs;
 
         // unmap buffer object
         cudaGLUnmapBufferObject(pbo);

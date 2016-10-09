@@ -12,6 +12,7 @@ GLFWwindow *window;
 
 extern RenderState *renderState;
 extern double numPathsFinished;
+extern double totalElapsedTimeMs;
 
 std::string currentTimeString() {
     time_t now;
@@ -170,14 +171,14 @@ bool init() {
     return true;
 }
 
-double computePathsPerIteration()
+double computePathsPerMs()
 {
 	numPathsFinished = 0.0;
 	for (const auto &pixel : renderState->image)
 	{
 		numPathsFinished += pixel.w;
 	}
-	return numPathsFinished / static_cast<double>(iteration);
+	return numPathsFinished / totalElapsedTimeMs;
 }
 
 void mainLoop() {
@@ -187,7 +188,7 @@ void mainLoop() {
 
 		string title = "CIS565 Path Tracer | " + utilityCore::convertIntToString(iteration) + " Iterations ["
 			+ utilityCore::convertIntToString(iterationTimeMs) + " ms] [" +
-			utilityCore::convertDoubleToString(computePathsPerIteration()) + "ppi]";
+			utilityCore::convertDoubleToString(computePathsPerMs()) + "pps]";
         glfwSetWindowTitle(window, title.c_str());
 
         glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
