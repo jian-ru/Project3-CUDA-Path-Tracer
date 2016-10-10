@@ -190,4 +190,17 @@ GLuint createProgram(const char *vertexShaderPath, const char *fragmentShaderPat
 
     return program;
 }
+
+GLuint createProgramFromSrc(const char *vsSrc, const char *psSrc)
+{
+	GLuint vs, ps;
+	compileShader("Vertex", vsSrc, GL_VERTEX_SHADER, (GLint &)vs);
+	compileShader("Fragment", psSrc, GL_FRAGMENT_SHADER, (GLint &)ps);
+	
+	shaders_t shaders = { vs, ps, 0 };
+	GLuint program = glCreateProgram();
+	glslUtility::attachAndLinkProgram(program, shaders);
+
+	return program;
+}
 }

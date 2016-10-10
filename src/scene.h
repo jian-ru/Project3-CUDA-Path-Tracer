@@ -127,7 +127,6 @@ namespace BVH
 
 		void clear() { nodes.clear(); }
 
-	private:
 		void recursiveBuild(std::vector<std::shared_ptr<ShapePrimitive>> &prims, uint32_t depth);
 
 		struct BVHNode

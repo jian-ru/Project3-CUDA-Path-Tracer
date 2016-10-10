@@ -13,6 +13,7 @@ GLuint createDefaultProgram(const char *attributeLocations[], GLuint numberOfLoc
 GLuint createProgram(const char *attributeLocations[], GLuint numberOfLocations,
                      const char *vertexShaderPath, const char *fragmentShaderPath,
                      const char *geometryShaderPath = 0);
+GLuint createProgramFromSrc(const char *vsSrc, const char *psSrc);
 }
 
 #endif

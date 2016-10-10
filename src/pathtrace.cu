@@ -113,6 +113,21 @@ namespace MyUtilities
 		a = b;
 		b = tmp;
 	}
+
+	__device__ __forceinline__ void coordinateSystem(const glm::vec3 &v1, glm::vec3 &v2, glm::vec3 &v3)
+	{
+		if (fabsf(v1.x) > fabsf(v1.y))
+		{
+			float invLen = 1.f / sqrtf(v1.x * v1.x + v1.z * v1.z);
+			v2 = glm::vec3(-v1.z * invLen, 0.f, v1.x * invLen);
+		}
+		else
+		{
+			float invLen = 1.f / sqrtf(v1.y * v1.y + v1.z * v1.z);
+			v2 = glm::vec3(0.f, v1.z * invLen, -v1.y * invLen);
+		}
+		v3 = glm::normalize(glm::cross(v1, v2));
+	}
 }
 
 
@@ -362,41 +377,75 @@ namespace BRDF
 
 		__device__ BlinnNDF(float e) : exponent(e) {}
 
-		__device__ float operator()(const glm::vec3 &h, const glm::vec3 &n) const
+		__device__ float operator()(const glm::vec3 &h) const
 		{
-			float costhetah = glm::dot(h, n);
+			float costhetah = h.z;
 			return (exponent + 2.f) * powf(costhetah, exponent) / (2.f * PI);
 		}
-	};
 
-	struct AshikhminShierleyBRDF
-	{
-		glm::vec3 Rd, Rs;
-		BlinnNDF D;
-
-		__device__ AshikhminShierleyBRDF(const glm::vec3 &rd, const glm::vec3 &rs, float e)
-			: Rd(rd), Rs(rs), D(e) {}
-
-		__device__ glm::vec3 operator()(const glm::vec3 &wo, const glm::vec3 &wi, const glm::vec3 &n) const
+		__device__ void sample(float &pdf, glm::vec3 &wi, const glm::vec3 &wo,
+			thrust::default_random_engine &rng,
+			thrust::uniform_real_distribution<float> &u01) const
 		{
-			float nwo = fabs(glm::dot(n, wo));
-			float nwi = fabs(glm::dot(n, wi));
-			glm::vec3 diffuse = (28.f / (23.f * PI)) * Rd *
-				(1.f - Rs) *
-				(1.f - powf(1.f - .5f * nwi, 5.f)) *
-				(1.f - powf(1.f - .5f * nwo, 5.f));
+			glm::vec3 h;
+
+			float costheta = powf(u01(rng), 1.f / (exponent + 1.f));
+			float sintheta = sqrtf(fmax(0.f, 1.f - costheta * costheta));
+			float phi = u01(rng) * 2.f * PI;
+			h = glm::vec3(sintheta * cosf(phi), sintheta * sinf(phi), costheta);
+			if (wo.z * h.z < 0.f) h = -h;
+			wi = -wo + 2.f * glm::dot(wo, h) * h;
+			float hpdf;
+			float hwo = glm::dot(wo, h);
+			if (hwo > FLT_EPSILON)
+			{
+				hpdf = ((exponent + 1.f) * powf(costheta, exponent)) /
+					(2.f * PI * 4.f * hwo);
+			}
+			else
+			{
+				hpdf = 0.f;
+			}
+		}
+
+		__device__ float pdf(const glm::vec3 &wo, const glm::vec3 &wi) const
+		{
 			glm::vec3 h = glm::normalize(wo + wi);
-			float hwi = fabs(glm::dot(wi, h));
-			glm::vec3 specular = D(h, n) * schlickFresnel(hwi) /
-				(4.f * hwi * glm::max(nwi, nwo));
-			return diffuse + specular;
-		}
+			float costheta = fabsf(h.z);
+			return ((exponent + 1.f) * powf(costheta, exponent)) /
+				(2.f * PI * 4.f * glm::dot(wo, h));
 
-		__device__ glm::vec3 schlickFresnel(float costheta) const
-		{
-			return Rs + powf(1.f - costheta, 5.f) * (1.f - Rs);
 		}
 	};
+
+	//struct AshikhminShierleyBRDF
+	//{
+	//	glm::vec3 Rd, Rs;
+	//	BlinnNDF D;
+
+	//	__device__ AshikhminShierleyBRDF(const glm::vec3 &rd, const glm::vec3 &rs, float e)
+	//		: Rd(rd), Rs(rs), D(e) {}
+
+	//	__device__ glm::vec3 operator()(const glm::vec3 &wo, const glm::vec3 &wi, const glm::vec3 &n) const
+	//	{
+	//		float nwo = fabs(glm::dot(n, wo));
+	//		float nwi = fabs(glm::dot(n, wi));
+	//		glm::vec3 diffuse = (28.f / (23.f * PI)) * Rd *
+	//			(1.f - Rs) *
+	//			(1.f - powf(1.f - .5f * nwi, 5.f)) *
+	//			(1.f - powf(1.f - .5f * nwo, 5.f));
+	//		glm::vec3 h = glm::normalize(wo + wi);
+	//		float hwi = fabs(glm::dot(wi, h));
+	//		glm::vec3 specular = D(h, n) * schlickFresnel(hwi) /
+	//			(4.f * hwi * glm::max(nwi, nwo));
+	//		return diffuse + specular;
+	//	}
+
+	//	__device__ glm::vec3 schlickFresnel(float costheta) const
+	//	{
+	//		return Rs + powf(1.f - costheta, 5.f) * (1.f - Rs);
+	//	}
+	//};
 
 	struct TorranceSparrow
 	{
@@ -408,26 +457,37 @@ namespace BRDF
 			: R(color), D(e), etai(ei), etat(et) {}
 
 		__device__ float G(const glm::vec3 &wo, const glm::vec3 &wi,
-			const glm::vec3 &h, const glm::vec3 &n) const
+			const glm::vec3 &h) const
 		{
-			float nh = fabs(glm::dot(n, h));
-			float nwo = fabs(glm::dot(n, wo));
-			float nwi = fabs(glm::dot(n, wi));
-			float hwo = fabs(glm::dot(wo, h));
+			float nh = fabsf(h.z);
+			float nwo = fabsf(wo.z);
+			float nwi = fabsf(wi.z);
+			float hwo = fabsf(glm::dot(wo, h));
 			return glm::min(1.f, glm::min(2.f * nh * nwo / hwo, 2.f * nh * nwi / hwo));
 		}
 
-		__device__ glm::vec3 operator()(const glm::vec3 &wo, const glm::vec3 &wi, const glm::vec3 &n) const
+		__device__ glm::vec3 operator()(const glm::vec3 &wo, const glm::vec3 &wi) const
 		{
-			float coso = fabs(glm::dot(n, wo));
-			float cosi = fabs(glm::dot(n, wi));
+			float coso = fabs(wo.z);
+			float cosi = fabs(wi.z);
 			if (coso < FLT_EPSILON || cosi < FLT_EPSILON) return glm::vec3(0.f);
 			glm::vec3 h = glm::normalize(wi + wo);
 			float costhetah = glm::dot(wi, h);
-			float sint = etai / etat * sqrtf(1.f - costhetah * costhetah);
-			float cost = sqrtf(1.f - sint * sint);
-			float F = Fresnel::frDiel(costhetah, etai, cost, etat);
-			return R * D(h, n) * G(wo, wi, h, n) * F / (4.f * cosi * coso);
+			float F = Fresnel::frDiel(costhetah, etai, 0.f, etat);
+			return R * D(h) * G(wo, wi, h) * F / (4.f * cosi * coso);
+		}
+
+		__device__ void sample(float &pdf, glm::vec3 &wi, const glm::vec3 &wo,
+			thrust::default_random_engine &rng,
+			thrust::uniform_real_distribution<float> &u01) const
+		{
+			D.sample(pdf, wi, wo, rng, u01);
+		}
+
+		__device__ float pdf(const glm::vec3 &wo, const glm::vec3 &wi) const
+		{
+			if (wo.z * wi.z < 0.f) return 0.f;
+			return D.pdf(wo, wi);
 		}
 	};
 }
@@ -535,7 +595,7 @@ __global__ void shadeMaterials(
 			else if (pathType == TorranceSparrow)
 			{
 				BRDF::TorranceSparrow brdf(materialColor, material.specular.exponent, 1.f, material.indexOfRefraction);
-				//printf("%f\n", brdf.D.exponent);
+				//printf("%f\n", material.indexOfRefraction);
 
 				int lightIdx = static_cast<int>(u01(rng) * dev_numLights);
 				lightIdx = (lightIdx <= dev_numLights - 1) ? lightIdx : (dev_numLights - 1);
@@ -545,15 +605,22 @@ __global__ void shadeMaterials(
 				bool isBlocked;
 				float llPdf, blPdf;
 				float lbPdf, bbPdf;
-				glm::vec3 lightDir;
+				glm::vec3 lightDir, localLightDir;
+				glm::vec3 brdfDir, localBrdfDir;
 
 				LightSourceSampling::sampleLight_Sphere(lightDir, isBlocked, llPdf, lightSrc, isecPt, geoms, numGeoms, triangles, numTriangles, bvh, rng, u01);
-				glm::vec3 brdfDir = calculateRandomDirectionInHemisphere(bbPdf, intersection.surfaceNormal, rng, u01);
-				blPdf = LightSourceSampling::sphereLightPdf(lightSrc, isecPt, brdfDir);
-				lbPdf = cosWeightedHemispherePdf(intersection.surfaceNormal, lightDir);
 
-				// IS
-				//pathSegments[idx].color *= lambertBrdf * fmax(0.f, glm::dot(intersection.surfaceNormal, brdfDir)) / (bbPdf + FLT_EPSILON);
+				glm::vec3 tangent, bitangent;
+				MyUtilities::coordinateSystem(intersection.surfaceNormal, tangent, bitangent);
+				glm::mat3 T(tangent, bitangent, intersection.surfaceNormal); // local to world
+
+				glm::vec3 wo = glm::transpose(T) * -pathSegment.ray.direction;
+				brdf.sample(bbPdf, localBrdfDir, wo, rng, u01);
+				brdfDir = T * localBrdfDir;
+
+				blPdf = LightSourceSampling::sphereLightPdf(lightSrc, isecPt, brdfDir);
+				localLightDir = glm::transpose(T) * lightDir;
+				lbPdf = brdf.pdf(wo, localLightDir);
 
 				// MIS
 				float wLight = powerHeuristic(1, llPdf, 1, lbPdf);
@@ -564,12 +631,12 @@ __global__ void shadeMaterials(
 				if (!isBlocked)
 				{
 					pathSegments[idx].color +=
-						pathSegment.misWeight * brdf(-pathSegment.ray.direction, lightDir, intersection.surfaceNormal) *
+						pathSegment.misWeight * brdf(wo, localLightDir) *
 						lightColor * fmax(0.f, glm::dot(intersection.surfaceNormal, lightDir)) *
 						wLight / (llPdf + FLT_EPSILON);
 				}
 				pathSegments[idx].misWeight *=
-					brdf(-pathSegment.ray.direction, brdfDir, intersection.surfaceNormal) *
+					brdf(wo, localBrdfDir) *
 					fmax(0.f, glm::dot(intersection.surfaceNormal, brdfDir)) *
 					wBrdf / (bbPdf + FLT_EPSILON);
 

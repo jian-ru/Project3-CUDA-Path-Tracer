@@ -259,13 +259,13 @@ namespace Fresnel
 	__device__ __forceinline__ float frDiel(float cosi, float etai, float cost, float etat)
 	{
 		// PBRT
-		float rParl = (etat * cosi - etai * cost) / (etat * cosi + etai * cost + FLT_EPSILON);
-		float rPerp = (etai * cosi - etat * cost) / (etai * cosi + etat * cost + FLT_EPSILON);
-		return (rParl * rParl + rPerp * rPerp) * 0.5f;
+		//float rParl = (etat * cosi - etai * cost) / (etat * cosi + etai * cost + FLT_EPSILON);
+		//float rPerp = (etai * cosi - etat * cost) / (etai * cosi + etat * cost + FLT_EPSILON);
+		//return (rParl * rParl + rPerp * rPerp) * 0.5f;
 
 		// Schlick's
-		//float R0 = (etai - etat) / (etai + etat);
-		//R0 = R0 * R0;
-		//return R0 + (1.f - R0) * powf(1.f - cosi, 5.f);
+		float R0 = (etai - etat) / (etai + etat);
+		R0 = R0 * R0;
+		return R0 + (1.f - R0) * powf(1.f - cosi, 5.f);
 	}
 }

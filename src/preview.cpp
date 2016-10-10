@@ -176,6 +176,10 @@ double computePathsPerMs()
 	numPathsFinished = 0.0;
 	for (const auto &pixel : renderState->image)
 	{
+		//if (glm::any(glm::isnan(pixel)) || glm::any(glm::isinf(pixel)))
+		//{
+		//	throw std::exception();
+		//}
 		numPathsFinished += pixel.w;
 	}
 	return numPathsFinished / totalElapsedTimeMs;

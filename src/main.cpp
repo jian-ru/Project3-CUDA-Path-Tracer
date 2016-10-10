@@ -29,6 +29,277 @@ double numPathsFinished;
 int width;
 int height;
 
+static const char *phoneVsSrc =
+"#version 450 core\n"
+"layout(location = 0) uniform mat4 MVP;"
+"layout(location = 0) in vec3 position;"
+"layout(location = 1) in vec3 normal;"
+"out VS_OUT"
+"{"
+"	vec3 pos;"
+"	vec3 normal;"
+"} vs_out;"
+"void main()"
+"{"
+"	gl_Position = MVP * vec4(position, 1.f);"
+"	vs_out.pos = position;"
+"	vs_out.normal = normal;"
+"}";
+
+static const char *phonePsSrc =
+"#version 450 core\n"
+"layout(location = 1) uniform vec3 lightDir;\n"
+"layout(location = 2) uniform vec3 eyePos;\n"
+"in VS_OUT\n"
+"{\n"
+"	vec3 pos;\n"
+"	vec3 normal;\n"
+"} ps_in;\n"
+"out vec4 final_color;\n"
+"void main()\n"
+"{\n"
+"   const vec3 ambient = vec3(1, 1, 1);\n"
+"	const vec3 specColor = vec3(1, 1, 1);\n"
+"	const vec3 diffColor = vec3(1, 1, 1);\n"
+"   const float Ka = 0.1;\n"
+"	const float Kd = 0.5;\n"
+"	const float Ks = 0.5;\n"
+"	const float exponent = 20.0;\n"
+"	vec3 viewDir = normalize(eyePos - ps_in.pos);\n"
+"	vec3 h = normalize(lightDir + viewDir);\n"
+"	float costheta = clamp(dot(normalize(ps_in.normal), h), 0.0, 1.0);\n"
+"	final_color = vec4(Ka * ambient + Kd * diffColor + Ks * specColor * pow(costheta, exponent), 1.0);\n"
+"}";
+
+static const char *lineVsSrc =
+"#version 450 core\n"
+"layout(location = 0) uniform mat4 MVP;"
+"layout(location = 0) in vec3 position;"
+"void main()"
+"{"
+"	gl_Position = MVP * vec4(position, 1.0);"
+"}";
+
+static const char *linePsSrc =
+"#version 450 core\n"
+"out vec4 final_color;"
+"void main()"
+"{"
+"	final_color = vec4(1, 0, 1, 1);"
+"}";
+
+class BVHDebug
+{
+public:
+	BVHDebug(Scene *scene) : scene(scene) {}
+	
+	void run()
+	{
+		initWindow();
+		initShaders();
+		initVertexBuffers();
+		glClearColor(0.f, 0.f, 0.f, 0.f);
+		glEnable(GL_DEPTH_TEST);
+
+		while (!glfwWindowShouldClose(window))
+		{
+			glfwPollEvents();
+
+			if (camchanged)
+			{
+				Camera &cam = renderState->camera;
+				cameraPosition.x = zoom * sin(phi) * sin(theta);
+				cameraPosition.y = zoom * cos(theta);
+				cameraPosition.z = zoom * cos(phi) * sin(theta);
+
+				cam.view = -glm::normalize(cameraPosition);
+				glm::vec3 v = cam.view;
+				glm::vec3 u = glm::vec3(0, 1, 0);//glm::normalize(cam.up);
+				glm::vec3 r = glm::cross(v, u);
+				cam.up = glm::cross(r, v);
+				cam.right = r;
+
+				cameraPosition += cam.lookAt;
+				cam.position = cameraPosition;
+				camchanged = false;
+			}
+
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+			const Camera &cam = scene->state.camera;
+			glm::mat4 viewMatrix = glm::lookAt(cam.position, cam.lookAt, cam.up);
+			glm::mat4 projMatrix = glm::perspective(cam.fov.y,
+				cam.resolution.x / float(cam.resolution.y),
+				.1f, 100.f);
+			glm::mat4 MVP = projMatrix * viewMatrix;
+			glm::vec3 eyePos = cam.position;
+			glm::vec3 lightDir = glm::normalize(glm::vec3(1.f, 1.f, 1.f));
+
+			glUseProgram(phoneProgram);
+			glBindVertexArray(modelVAO);
+			glUniformMatrix4fv(0, 1, GL_FALSE, &MVP[0][0]);
+			glUniform3fv(1, 1, &lightDir[0]);
+			glUniform3fv(2, 1, &eyePos[0]);
+			glDrawArrays(GL_TRIANGLES, 0, scene->triangles.size() * 3);
+
+			glUseProgram(lineProgram);
+			glBindVertexArray(lineVAO);
+			glUniformMatrix4fv(0, 1, GL_FALSE, &MVP[0][0]);
+			glDrawArrays(GL_LINES, 0, scene->bvh->nodes.size() * 24);
+
+			glfwSwapBuffers(window);
+		}
+		glfwDestroyWindow(window);
+		glfwTerminate();
+		clear();
+		exit(0);
+	}
+
+	void clear()
+	{
+		glDeleteProgram(phoneProgram);
+		glDeleteProgram(lineProgram);
+		glDeleteVertexArrays(1, &modelVAO);
+		glDeleteVertexArrays(1, &lineVAO);
+		glDeleteBuffers(1, &modelVerts);
+		glDeleteBuffers(1, &modelNormals);
+		glDeleteBuffers(1, &lineVerts);
+	}
+
+private:
+	void initWindow()
+	{
+		if (!glfwInit())
+		{
+			exit(EXIT_FAILURE);
+		}
+
+		window = glfwCreateWindow(scene->state.camera.resolution.x,
+			scene->state.camera.resolution.y, "BVH Debug Window", NULL, NULL);
+		if (!window)
+		{
+			glfwTerminate();
+			throw std::exception();
+		}
+		glfwMakeContextCurrent(window);
+		glfwSetKeyCallback(window, keyCallback);
+		glfwSetCursorPosCallback(window, mousePositionCallback);
+		glfwSetMouseButtonCallback(window, mouseButtonCallback);
+
+		// Set up GL context
+		glewExperimental = GL_TRUE;
+		if (glewInit() != GLEW_OK)
+		{
+			throw std::exception();
+		}
+	}
+
+	void initShaders()
+	{
+		phoneProgram = glslUtility::createProgramFromSrc(phoneVsSrc, phonePsSrc);
+		lineProgram = glslUtility::createProgramFromSrc(lineVsSrc, linePsSrc);
+	}
+
+	void initVertexBuffers()
+	{
+		std::vector<glm::vec3> modelPos;
+		std::vector<glm::vec3> modelNrm;
+
+		for (const auto &tri : scene->triangles)
+		{
+			glm::mat4 T = scene->geoms[tri.meshIdx].transform;
+			modelPos.emplace_back(glm::vec3(T * glm::vec4(tri.positions[0], 1.f)));
+			modelPos.emplace_back(glm::vec3(T * glm::vec4(tri.positions[1], 1.f)));
+			modelPos.emplace_back(glm::vec3(T * glm::vec4(tri.positions[2], 1.f)));
+			modelNrm.emplace_back(glm::vec3(T * glm::vec4(tri.normals[0], 0.f)));
+			modelNrm.emplace_back(glm::vec3(T * glm::vec4(tri.normals[1], 0.f)));
+			modelNrm.emplace_back(glm::vec3(T * glm::vec4(tri.normals[2], 0.f)));
+		}
+
+		std::vector<glm::vec3> linePos;
+
+		auto addBBoxVerts = [&linePos](const BVH::BBox &b)
+		{
+			glm::vec3 corners[8] =
+			{
+				{ b.p_min.x, b.p_min.y, b.p_min.z },
+				{ b.p_max.x, b.p_min.y, b.p_min.z },
+				{ b.p_min.x, b.p_max.y, b.p_min.z },
+				{ b.p_min.x, b.p_min.y, b.p_max.z },
+				{ b.p_max.x, b.p_max.y, b.p_min.z },
+				{ b.p_max.x, b.p_min.y, b.p_max.z },
+				{ b.p_min.x, b.p_max.y, b.p_max.z },
+				{ b.p_max.x, b.p_max.y, b.p_max.z },
+			};
+
+			linePos.emplace_back(corners[0]);
+			linePos.emplace_back(corners[1]);
+			linePos.emplace_back(corners[1]);
+			linePos.emplace_back(corners[4]);
+			linePos.emplace_back(corners[4]);
+			linePos.emplace_back(corners[2]);
+			linePos.emplace_back(corners[2]);
+			linePos.emplace_back(corners[0]);
+
+			linePos.emplace_back(corners[0]);
+			linePos.emplace_back(corners[2]);
+			linePos.emplace_back(corners[1]);
+			linePos.emplace_back(corners[5]);
+			linePos.emplace_back(corners[4]);
+			linePos.emplace_back(corners[7]);
+			linePos.emplace_back(corners[2]);
+			linePos.emplace_back(corners[6]);
+
+			linePos.emplace_back(corners[3]);
+			linePos.emplace_back(corners[5]);
+			linePos.emplace_back(corners[5]);
+			linePos.emplace_back(corners[7]);
+			linePos.emplace_back(corners[7]);
+			linePos.emplace_back(corners[6]);
+			linePos.emplace_back(corners[6]);
+			linePos.emplace_back(corners[3]);
+		};
+
+		for (const auto &node : scene->bvh->nodes)
+		{
+			addBBoxVerts(node.bounds);
+		}
+		
+		glGenVertexArrays(1, &modelVAO);
+		glBindVertexArray(modelVAO);
+		glGenBuffers(1, &modelVerts);
+		glBindBuffer(GL_ARRAY_BUFFER, modelVerts);
+		glBufferData(GL_ARRAY_BUFFER, modelPos.size() * sizeof(glm::vec3), modelPos.data(), GL_STATIC_DRAW);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+		glEnableVertexAttribArray(0);
+
+		glGenBuffers(1, &modelNormals);
+		glBindBuffer(GL_ARRAY_BUFFER, modelNormals);
+		glBufferData(GL_ARRAY_BUFFER, modelNrm.size() * sizeof(glm::vec3), modelNrm.data(), GL_STATIC_DRAW);
+		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, 0);
+		glEnableVertexAttribArray(1);
+
+		glGenVertexArrays(1, &lineVAO);
+		glBindVertexArray(lineVAO);
+		glGenBuffers(1, &lineVerts);
+		glBindBuffer(GL_ARRAY_BUFFER, lineVerts);
+		glBufferData(GL_ARRAY_BUFFER, linePos.size() * sizeof(glm::vec3), linePos.data(), GL_STATIC_DRAW);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+		glEnableVertexAttribArray(0);
+
+		glBindVertexArray(0);
+	}
+
+	GLuint modelVerts, modelNormals, modelVAO;
+	GLuint lineVerts, lineVAO;
+
+	GLuint phoneProgram, lineProgram;
+	
+	GLFWwindow *window;
+	Scene *scene;
+};
+
+
 //-------------------------------
 //-------------MAIN--------------
 //-------------------------------
@@ -68,6 +339,9 @@ int main(int argc, char** argv) {
     theta = glm::acos(glm::dot(glm::normalize(viewZY), glm::vec3(0, 1, 0)));
     ogLookAt = cam.lookAt;
     zoom = glm::length(cam.position - ogLookAt);
+
+	//BVHDebug bvhdebug(scene);
+	//bvhdebug.run();
 
     // Initialize CUDA and GL components
     init();
